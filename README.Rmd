@@ -1,0 +1,80 @@
+---
+output: github_document
+---
+
+<!-- README.md is generated from README.Rmd. Please edit that file -->
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.path = "man/figures/README-",
+  out.width = "100%"
+)
+```
+
+# CoQR
+
+<!-- badges: start -->
+<!-- badges: end -->
+
+The CoQR package fits a dynamic Co-Quantile Regression in the sense that it semiparametrically models the Value at Risk (VaR), i.e., the $\beta$-quantile of $X_t$ jointly with the $\alpha|\beta$-CoVaR of a series $Y_t$ given $X_t$.
+
+## Installation
+
+You can install the development version of CoQR from [GitHub](https://github.com/) with:
+
+``` r
+# install.packages("devtools")
+devtools::install_github("TimoDimi/CoQR")
+```
+
+## Example
+
+This is a basic example which shows you how to solve a common problem:
+
+```{r example}
+library(quantmod)
+library(tidyr)
+library(dplyr)
+library(tsibble)
+library(CoQR)
+
+# Get data from Yahoo Finance
+data_Symbols <- lapply(c("JPM", "^GSPC"), function(x) {
+  getSymbols(x,
+             from = "2000/01/01",
+             to = "2021/12/31",
+             periodicity = "daily",
+             auto.assign = FALSE) %>%
+    data.frame(Date=zoo::index(.), check.names=FALSE) %>%
+    rename_all(~stringr::str_replace_all(., paste0(x,"."), ""))
+})
+names(data_Symbols) <- c("JPM", "SP500")
+
+# Collect data as a tsibble with x and y as column names
+data_Assets <- dplyr::bind_rows(data_Symbols, .id = "Asset") %>%
+  dplyr::group_by(Asset) %>%
+  dplyr::mutate(Date=lubridate::as_date(Date),
+         NegReturn= -100*(log(Close) - log(lag(Close)))) %>%
+  dplyr::select(Date, Asset, NegReturn) %>%
+  stats::na.omit() %>%
+  tidyr::pivot_wider(names_from=Asset, values_from=NegReturn) %>%
+  dplyr::rename(x=JPM, y=SP500) %>%
+  tsibble::as_tsibble(index=Date)
+
+
+# Fit a CoCAViaR-SAV-fullA model
+CoCAViaR_obj <- CoQR(data=data_Assets,
+                     model="CoCAViaR_SAV_fullA", 
+                     SRM="CoVaR", 
+                     beta=0.95, 
+                     alpha=0.95)
+
+# Get standard errors and print its summary
+summary(CoCAViaR_obj)
+
+# Plot the time series and estimated (in-sample) VaR/CoVaR
+plot(CoCAViaR_obj)
+```
+
