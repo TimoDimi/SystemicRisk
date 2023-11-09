@@ -13,20 +13,21 @@ knitr::opts_chunk$set(
 )
 ```
 
-# CoQR
+# SystemicRisk
 
 <!-- badges: start -->
 <!-- badges: end -->
 
-The CoQR package fits a dynamic Co-Quantile Regression in the sense that it semiparametrically models the Value at Risk (VaR), i.e., the $\beta$-quantile of $X_t$ jointly with the $\alpha|\beta$-CoVaR of a series $Y_t$ given $X_t$.
+The SystemicRisk package fits (dynamic) CoVaR and MES Regression Models in the sense that
+it semiparametrically models the Value at Risk (VaR), i.e., the $\beta$-quantile of $X_t$ jointly with the $\alpha|\beta$-CoVaR or the $\beta$-MES of a series $Y_t$ given $X_t$.
 
 ## Installation
 
-You can install the development version of CoQR from [GitHub](https://github.com/) with:
+You can install the development version of SystemicRisk from [GitHub](https://github.com/) with:
 
 ``` r
 # install.packages("devtools")
-devtools::install_github("TimoDimi/CoQR")
+devtools::install_github("TimoDimi/SystemicRisk")
 ```
 
 ## Example
@@ -38,7 +39,7 @@ library(quantmod)
 library(tidyr)
 library(dplyr)
 library(tsibble)
-library(CoQR)
+library(SystemicRisk)
 
 # Get data from Yahoo Finance
 data_Symbols <- lapply(c("JPM", "^GSPC"), function(x) {
@@ -65,16 +66,48 @@ data_Assets <- dplyr::bind_rows(data_Symbols, .id = "Asset") %>%
 
 
 # Fit a CoCAViaR-SAV-fullA model
-CoCAViaR_obj <- CoQR(data=data_Assets,
-                     model="CoCAViaR_SAV_fullA", 
-                     SRM="CoVaR", 
-                     beta=0.95, 
-                     alpha=0.95)
+CoCAViaR_obj <- SRM(data=data_Assets,
+                    model="CoCAViaR_SAV_fullA", 
+                    risk_measure="CoVaR", 
+                    beta=0.95, 
+                    alpha=0.95)
 
 # Get standard errors and print its summary
 summary(CoCAViaR_obj)
 
 # Plot the time series and estimated (in-sample) VaR/CoVaR
-plot(CoCAViaR_obj)
+p <- plot(CoCAViaR_obj)
+
+
+
+
+## Download VIX index:
+data_VIX <- getSymbols("^VIX",
+             from = "2000/01/01",
+             to = "2021/12/31",
+             periodicity = "daily",
+             auto.assign = FALSE) %>%
+    data.frame(Date=zoo::index(.), check.names=FALSE) %>%
+  select(Date, VIX.Close) %>%
+  rename(VIX = VIX.Close)
+
+# Merge data frames
+data_Assets_VIX <- full_join(data_Assets, data_VIX, by="Date") %>%
+  mutate(Intercept = 1) %>%
+  select(Date, x, y, VIX, Intercept) %>%
+  na.omit()
+
+# Fit a linear MES regression model (with the lagged absolute values of X_t as explanatory variables)
+MES_reg <- SRM(data=data_Assets_VIX,
+               model="joint_linear", 
+               risk_measure="MES", 
+               beta=0.95)
+
+# Get standard errors and print its summary
+summary(MES_reg)
+
+# Plot the time series and estimated (in-sample) VaR/MES
+p2 <- plot(MES_reg)
+
 ```
 
