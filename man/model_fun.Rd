@@ -11,6 +11,7 @@ model_fun(
   model = "joint_linear",
   risk_measure = "CoVaR",
   forecast = FALSE,
+  init_method = "omega",
   model_type = "joint",
   m1 = NULL
 )
@@ -27,6 +28,8 @@ model_fun(
 \item{risk_measure}{The system risk measure; currently only implemented for the "CoVaR"}
 
 \item{forecast}{logical variable whether the forecast should be produced in the call or not}
+
+\item{init_method}{method for initializing the recursion. Either "omega", "average", or the model is initialized with zeros}
 
 \item{model_type}{either "joint", "first" or "second" indicating which model (both, VaR, or CoVaR) should be returned}
 

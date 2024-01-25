@@ -36,24 +36,25 @@
 #' @param model string or list indicating the model, see Details for more
 #' @param risk_measure The system risk measure; currently only implemented for the "CoVaR"
 #' @param forecast logical variable whether the forecast should be produced in the call or not
+#' @param init_method method for initializing the recursion. Either "omega", "average", or the model is initialized with zeros
 #' @param model_type either "joint", "first" or "second" indicating which model (both, VaR, or CoVaR) should be returned
 #' @param m1 Fitted values for the first (VaR) model; required for model_type="second"
 #'
 #' @return a list with entries m1 and m2 containing the VaR and CoVaR values as entries
 #' @export
-model_fun <- function(theta, df, prob_level, model="joint_linear", risk_measure="CoVaR", forecast=FALSE, model_type="joint", m1=NULL){
+model_fun <- function(theta, df, prob_level, model="joint_linear", risk_measure="CoVaR", forecast=FALSE, init_method="omega", model_type="joint", m1=NULL){
   if (!is.list(model)) {
-    m <- do.call(paste0("model_", model), args=list(theta=theta, df=df, prob_level=prob_level, risk_measure=risk_measure, forecast=forecast, model_type=model_type, m1=m1))
+    m <- do.call(paste0("model_", model), args=list(theta=theta, df=df, prob_level=prob_level, risk_measure=risk_measure, forecast=forecast, init_method=init_method, model_type=model_type, m1=m1))
   } else {
-    m <- model$fun(theta=theta, df=df, prob_level=prob_level, risk_measure=risk_measure, forecast=forecast, model_type=model_type, m1=m1)
+    m <- model$fun(theta=theta, df=df, prob_level=prob_level, risk_measure=risk_measure, forecast=forecast, init_method=init_method, model_type=model_type, m1=m1)
   }
   return(m)
 }
 
 
-nabla_fun <- function(theta, df, prob_level, model="joint_linear", risk_measure="CoVaR"){
+nabla_fun <- function(theta, df, prob_level, model="joint_linear", risk_measure="CoVaR", init_method="omega"){
   if (!is.list(model)) {
-    nabla_m <- do.call(paste0("nabla_", model), args=list(theta=theta, df=df, prob_level=prob_level, risk_measure=risk_measure))
+    nabla_m <- do.call(paste0("nabla_", model), args=list(theta=theta, df=df, prob_level=prob_level, risk_measure=risk_measure, init_method=init_method))
   } else {
     nabla_m <- model$nabla(theta, df)
   }
@@ -73,6 +74,39 @@ theta_fun <- function(model, theta=NULL, df=NULL){
 
 
 
+
+################################################################################
+###   A function for initializing the recursion
+################################################################################
+
+initialize_recursion <- function(df, omega, risk_measure, alpha, beta, init_method="omega"){
+  if (init_method == "average"){
+    m1 <- quantile(df$x, beta)
+    if (risk_measure=="CoVaR"){
+      m2 <- quantile(df$y[df$x >= m1] , alpha)
+    } else if (risk_measure=="MES"){
+      m2 <- mean(df$y[df$x >= m1])
+    }
+  } else if (init_method == "omega"){
+    m1 <- omega[1]
+    if (risk_measure=="CoVaR"){
+      m2 <- omega[2]
+    } else if (risk_measure=="MES"){
+      m2 <- omega[2]
+    }
+
+  } else {
+    m1 <- m2 <- 0
+  }
+
+  return(c(m1,m2))
+}
+
+
+
+
+
+
 ################################################################################
 ###    Joint linear model functions
 ################################################################################
@@ -81,7 +115,7 @@ theta_fun <- function(model, theta=NULL, df=NULL){
 # i.e., they are in the row above!!!!!
 #
 
-model_joint_linear <- function(theta, df, prob_level, risk_measure, forecast=FALSE, model_type="joint", m1=NULL){
+model_joint_linear <- function(theta, df, prob_level, risk_measure, forecast=FALSE, model_type="joint", init_method="omega", m1=NULL){
 
   TT <- dim(df)[1]
   if (forecast){TT <- TT + 1} # To produce a model forecast, simply add 1 to TT
@@ -120,7 +154,7 @@ model_joint_linear <- function(theta, df, prob_level, risk_measure, forecast=FAL
 #' @param risk_measure Systemic risk measure, currently only "CoVaR"
 #'
 #' @return list of model gradients
-nabla_joint_linear <- function(theta, df, prob_level, risk_measure){
+nabla_joint_linear <- function(theta, df, prob_level, risk_measure, init_method="omega"){
   z <- df %>%
     tibble::as_tibble() %>%
     dplyr::select(-c("Date", "x", "y")) %>%
@@ -166,7 +200,7 @@ theta_joint_linear <- function(theta, df){
 ###   This model more or less corresponds to an absolute value CCC-GARCH model with diagonal A and B.
 ################################################################################
 
-model_CoCAViaR_SAV_diag <- function(theta, df, prob_level, risk_measure, forecast=FALSE, model_type="joint", m1=NULL){
+model_CoCAViaR_SAV_diag <- function(theta, df, prob_level, risk_measure, forecast=FALSE, model_type="joint", init_method="omega", m1=NULL){
   q <- length(theta)
   alpha <- prob_level$alpha
   beta <- prob_level$beta
@@ -174,15 +208,14 @@ model_CoCAViaR_SAV_diag <- function(theta, df, prob_level, risk_measure, forecas
   TT <- dim(df)[1]
   if (forecast){TT <- TT + 1} # To produce a model forecast, simply add 1 to TT
 
+  # Initialize the recursion
+  if(model_type=="second"){omega_init <-  c(NA,theta[1])} else {omega_init <- c(theta[1], theta[4])}
+  m12 <- initialize_recursion(df, omega_init, risk_measure, alpha, beta, init_method)
+
   if (model_type=="joint"){
     m1 <- m2 <- rep(NA,TT)
-    m1[1] <- quantile(df$x, beta)
-    # Initialize m2 depending on the risk_measure we estimate
-    if (risk_measure=="CoVaR"){
-      m2[1] <- quantile(df$y[df$x >= m1[1]] , alpha)
-    } else if (risk_measure=="MES"){
-      m2[1] <- mean(df$y[df$x >= m1[1]])
-    }
+    m1[1] <- m12[1]
+    m2[1] <- m12[2]
     for (tt in 2:TT){
       m1[tt] <- theta[1] + theta[2]*abs(df$x[tt-1]) + theta[3]*m1[tt-1]
       m2[tt] <- theta[4] + theta[5]*abs(df$y[tt-1]) + theta[6]*m2[tt-1]
@@ -190,7 +223,7 @@ model_CoCAViaR_SAV_diag <- function(theta, df, prob_level, risk_measure, forecas
     return(list(m1=m1, m2=m2))
   } else if (model_type=="first"){
     m1 <- rep(NA,TT)
-    m1[1] <- quantile(df$x, beta)
+    m1[1] <- m12[1]
     for (tt in 2:TT){
       m1[tt] <- theta[1] + theta[2]*abs(df$x[tt-1]) + theta[3]*m1[tt-1]
     }
@@ -198,12 +231,7 @@ model_CoCAViaR_SAV_diag <- function(theta, df, prob_level, risk_measure, forecas
   } else if (model_type=="second"){
     stopifnot(!is.null(m1)) # A vector of m1 must be given!
     m2 <- rep(NA,TT)
-    # Initialize m2 depending on the risk_measure we estimate
-    if (risk_measure=="CoVaR"){
-      m2[1] <- quantile(df$y[df$x >= m1[1]] , alpha)
-    } else if (risk_measure=="MES"){
-      m2[1] <- mean(df$y[df$x >= m1[1]])
-    }
+    m2[1] <- m12[2]
     for (tt in 2:TT){
       m2[tt] <- theta[1] + theta[2]*abs(df$y[tt-1]) + theta[3]*m2[tt-1]
     }
@@ -212,9 +240,9 @@ model_CoCAViaR_SAV_diag <- function(theta, df, prob_level, risk_measure, forecas
 }
 
 
-nabla_CoCAViaR_SAV_diag <- function(theta, df, prob_level, risk_measure){
+nabla_CoCAViaR_SAV_diag <- function(theta, df, prob_level, risk_measure, init_method="omega"){
   TT <- dim(df)[1]
-  m <- model_CoCAViaR_SAV_diag(theta, df, prob_level, risk_measure)
+  m <- model_CoCAViaR_SAV_diag(theta, df, prob_level, risk_measure, init_method=init_method)
 
   # Manually implement the model gradient
   nabla_m1 <- cbind(1, lag(abs(df$x)), lag(m$m1), array(0, dim=c(TT,3)))
@@ -244,7 +272,7 @@ theta_CoCAViaR_SAV_diag <- function(theta, df=NULL){
 ###    8 Parameter "CoCAViaR_SAV_fullA" model with the restriction B_{12} = B_{21} = 0
 ################################################################################
 
-model_CoCAViaR_SAV_fullA <- function(theta, df, prob_level, risk_measure, forecast=FALSE, model_type="joint", m1=NULL){
+model_CoCAViaR_SAV_fullA <- function(theta, df, prob_level, risk_measure, forecast=FALSE, model_type="joint", init_method="omega", m1=NULL){
   q <- length(theta)
   alpha <- prob_level$alpha
   beta <- prob_level$beta
@@ -252,15 +280,14 @@ model_CoCAViaR_SAV_fullA <- function(theta, df, prob_level, risk_measure, foreca
   TT <- dim(df)[1]
   if (forecast){TT <- TT + 1} # To produce a model forecast, simply add 1 to TT
 
+  # Initialize the recursion
+  if(model_type=="second"){omega_init <-  c(NA,theta[1])} else {omega_init <- c(theta[1], theta[5])}
+  m12 <- initialize_recursion(df, omega_init, risk_measure, alpha, beta, init_method)
+
   if (model_type=="joint"){
     m1 <- m2 <- rep(NA,TT)
-    m1[1] <- quantile(df$x, beta)
-    # Initialize m2 depending on the risk_measure we estimate
-    if (risk_measure=="CoVaR"){
-      m2[1] <- quantile(df$y[df$x >= m1[1]] , alpha)
-    } else if (risk_measure=="MES"){
-      m2[1] <- mean(df$y[df$x >= m1[1]])
-    }
+    m1[1] <- m12[1]
+    m2[1] <- m12[2]
     for (tt in 2:TT){
       m1[tt] <- theta[1] + theta[2]*abs(df$x[tt-1]) + theta[3]*abs(df$y[tt-1]) + theta[4]*m1[tt-1]
       m2[tt] <- theta[5] + theta[6]*abs(df$x[tt-1]) + theta[7]*abs(df$y[tt-1]) + theta[8]*m2[tt-1]
@@ -268,7 +295,7 @@ model_CoCAViaR_SAV_fullA <- function(theta, df, prob_level, risk_measure, foreca
     return(list(m1=m1, m2=m2))
   } else if (model_type=="first"){
     m1 <- rep(NA,TT)
-    m1[1] <- quantile(df$x, beta)
+    m1[1] <- m12[1]
     for (tt in 2:TT){
       m1[tt] <- theta[1] + theta[2]*abs(df$x[tt-1]) + theta[3]*abs(df$y[tt-1]) + theta[4]*m1[tt-1]
     }
@@ -276,12 +303,7 @@ model_CoCAViaR_SAV_fullA <- function(theta, df, prob_level, risk_measure, foreca
   } else if (model_type=="second"){
     stopifnot(!is.null(m1)) # A vector of m1 must be given!
     m2 <- rep(NA,TT)
-    # Initialize m2 depending on the risk_measure we estimate
-    if (risk_measure=="CoVaR"){
-      m2[1] <- quantile(df$y[df$x >= m1[1]] , alpha)
-    } else if (risk_measure=="MES"){
-      m2[1] <- mean(df$y[df$x >= m1[1]])
-    }
+    m2[1] <- m12[2]
     for (tt in 2:TT){
       m2[tt] <- theta[1] + theta[2]*abs(df$x[tt-1]) + theta[3]*abs(df$y[tt-1]) + theta[4]*m2[tt-1]
     }
@@ -290,11 +312,11 @@ model_CoCAViaR_SAV_fullA <- function(theta, df, prob_level, risk_measure, foreca
 }
 
 
-nabla_CoCAViaR_SAV_fullA <- function(theta, df, prob_level, risk_measure){
+nabla_CoCAViaR_SAV_fullA <- function(theta, df, prob_level, risk_measure, init_method="omega"){
   q <- length(theta)
   TT <- dim(df)[1]
 
-  m <- model_CoCAViaR_SAV_fullA(theta, df, prob_level, risk_measure)
+  m <- model_CoCAViaR_SAV_fullA(theta, df, prob_level, risk_measure, init_method=init_method)
 
   # Manually implement the gradient
   nabla_m1 <- cbind(1, lag(abs(df$x)), lag(abs(df$y)), lag(m$m1), array(0, dim=c(TT,4)))
@@ -326,7 +348,7 @@ theta_CoCAViaR_SAV_fullA <- function(theta, df=NULL){
 ###    9 Parameter "CoCAViaR_SAV_full" model with the restriction: B_{21}=0
 ################################################################################
 
-model_CoCAViaR_SAV_full <- function(theta, df, prob_level, risk_measure, forecast=FALSE, model_type="joint", m1=NULL){
+model_CoCAViaR_SAV_full <- function(theta, df, prob_level, risk_measure, forecast=FALSE, model_type="joint", init_method="omega", m1=NULL){
   q <- length(theta)
   alpha <- prob_level$alpha
   beta <- prob_level$beta
@@ -334,15 +356,14 @@ model_CoCAViaR_SAV_full <- function(theta, df, prob_level, risk_measure, forecas
   TT <- dim(df)[1]
   if (forecast){TT <- TT + 1} # To produce a model forecast, simply add 1 to TT
 
+  # Initialize the recursion
+  if(model_type=="second"){omega_init <-  c(NA,theta[1])} else {omega_init <- c(theta[1], theta[5])}
+  m12 <- initialize_recursion(df, omega_init, risk_measure, alpha, beta, init_method)
+
   if (model_type=="joint"){
     m1 <- m2 <- rep(NA,TT)
-    m1[1] <- quantile(df$x, beta)
-    # Initialize m2 depending on the risk_measure we estimate
-    if (risk_measure=="CoVaR"){
-      m2[1] <- quantile(df$y[df$x >= m1[1]] , alpha)
-    } else if (risk_measure=="MES"){
-      m2[1] <- mean(df$y[df$x >= m1[1]])
-    }
+    m1[1] <- m12[1]
+    m2[1] <- m12[2]
     for (tt in 2:TT){
       m1[tt] <- theta[1] + theta[2]*abs(df$x[tt-1]) + theta[3]*abs(df$y[tt-1])  + theta[4]*m1[tt-1]
       m2[tt] <- theta[5] + theta[6]*abs(df$x[tt-1]) + theta[7]*abs(df$y[tt-1]) + theta[8]*m1[tt-1] + theta[9]*m2[tt-1]
@@ -350,7 +371,7 @@ model_CoCAViaR_SAV_full <- function(theta, df, prob_level, risk_measure, forecas
     return(list(m1=m1, m2=m2))
   } else if (model_type=="first"){
     m1 <- rep(NA,TT)
-    m1[1] <- quantile(df$x, beta)
+    m1[1] <- m12[1]
     for (tt in 2:TT){
       m1[tt] <- theta[1] + theta[2]*abs(df$x[tt-1]) + theta[3]*abs(df$y[tt-1]) + theta[4]*m1[tt-1]
     }
@@ -358,12 +379,7 @@ model_CoCAViaR_SAV_full <- function(theta, df, prob_level, risk_measure, forecas
   } else if (model_type=="second"){
     stopifnot(!is.null(m1)) # A vector of m1 must be given!
     m2 <- rep(NA,TT)
-    # Initialize m2 depending on the risk_measure we estimate
-    if (risk_measure=="CoVaR"){
-      m2[1] <- quantile(df$y[df$x >= m1[1]] , alpha)
-    } else if (risk_measure=="MES"){
-      m2[1] <- mean(df$y[df$x >= m1[1]])
-    }
+    m2[1] <- m12[2]
     for (tt in 2:TT){
       m2[tt] <- theta[1] + theta[2]*abs(df$x[tt-1]) + theta[3]*abs(df$y[tt-1]) + theta[4]*m1[tt-1] + theta[5]*m2[tt-1]
     }
@@ -372,11 +388,11 @@ model_CoCAViaR_SAV_full <- function(theta, df, prob_level, risk_measure, forecas
 }
 
 
-nabla_CoCAViaR_SAV_full <- function(theta, df, prob_level, risk_measure){
+nabla_CoCAViaR_SAV_full <- function(theta, df, prob_level, risk_measure, init_method="omega"){
   q <- length(theta)
   TT <- dim(df)[1]
 
-  m <- model_CoCAViaR_SAV_full(theta, df, prob_level, risk_measure)
+  m <- model_CoCAViaR_SAV_full(theta, df, prob_level, risk_measure, init_method=init_method)
 
   # Manually implement the gradient
   nabla_m1 <- cbind(1, lag(abs(df$x)), lag(abs(df$y)), lag(m$m1), array(0, dim=c(TT,5)))
@@ -409,10 +425,10 @@ theta_CoCAViaR_SAV_full <- function(theta, df=NULL){
 
 
 ################################################################################
-###    8 Parameter asymmetric slopde "CoCAViaR_AS_pos" model with the restriction B_{12} = B_{21} = 0 and only the positive componentes of X_t and Y_t enter the equations
+###    8 Parameter asymmetric slope "CoCAViaR_AS_pos" model with the restriction B_{12} = B_{21} = 0 and only the positive components of X_t and Y_t enter the equations
 ################################################################################
 
-model_CoCAViaR_AS_pos <- function(theta, df, prob_level, risk_measure, forecast=FALSE, model_type="joint", m1=NULL){
+model_CoCAViaR_AS_pos <- function(theta, df, prob_level, risk_measure, forecast=FALSE, model_type="joint", init_method="omega", m1=NULL){
   q <- length(theta)
   alpha <- prob_level$alpha
   beta <- prob_level$beta
@@ -420,15 +436,14 @@ model_CoCAViaR_AS_pos <- function(theta, df, prob_level, risk_measure, forecast=
   TT <- dim(df)[1]
   if (forecast){TT <- TT + 1} # To produce a model forecast, simply add 1 to TT
 
+  # Initialize the recursion
+  if(model_type=="second"){omega_init <-  c(NA,theta[1])} else {omega_init <- c(theta[1], theta[5])}
+  m12 <- initialize_recursion(df, omega_init, risk_measure, alpha, beta, init_method)
+
   if (model_type=="joint"){
     m1 <- m2 <- rep(NA,TT)
-    m1[1] <- quantile(df$x, beta)
-    # Initialize m2 depending on the risk_measure we estimate
-    if (risk_measure=="CoVaR"){
-      m2[1] <- quantile(df$y[df$x >= m1[1]] , alpha)
-    } else if (risk_measure=="MES"){
-      m2[1] <- mean(df$y[df$x >= m1[1]])
-    }
+    m1[1] <- m12[1]
+    m2[1] <- m12[2]
     for (tt in 2:TT){
       m1[tt] <- theta[1] + theta[2]*pmax(df$x[tt-1],0) + theta[3]*pmax(df$y[tt-1],0) + theta[4]*m1[tt-1]
       m2[tt] <- theta[5] + theta[6]*pmax(df$x[tt-1],0) + theta[7]*pmax(df$y[tt-1],0) + theta[8]*m2[tt-1]
@@ -436,7 +451,7 @@ model_CoCAViaR_AS_pos <- function(theta, df, prob_level, risk_measure, forecast=
     return(list(m1=m1, m2=m2))
   } else if (model_type=="first"){
     m1 <- rep(NA,TT)
-    m1[1] <- quantile(df$x, beta)
+    m1[1] <- m12[1]
     for (tt in 2:TT){
       m1[tt] <- theta[1] + theta[2]*pmax(df$x[tt-1],0) + theta[3]*pmax(df$y[tt-1],0) + theta[4]*m1[tt-1]
     }
@@ -444,12 +459,7 @@ model_CoCAViaR_AS_pos <- function(theta, df, prob_level, risk_measure, forecast=
   } else if (model_type=="second"){
     stopifnot(!is.null(m1)) # A vector of m1 must be given!
     m2 <- rep(NA,TT)
-    # Initialize m2 depending on the risk_measure we estimate
-    if (risk_measure=="CoVaR"){
-      m2[1] <- quantile(df$y[df$x >= m1[1]] , alpha)
-    } else if (risk_measure=="MES"){
-      m2[1] <- mean(df$y[df$x >= m1[1]])
-    }
+    m2[1] <- m12[2]
     for (tt in 2:TT){
       m2[tt] <- theta[1] + theta[2]*pmax(df$x[tt-1],0) + theta[3]*pmax(df$y[tt-1],0) + theta[4]*m2[tt-1]
     }
@@ -458,11 +468,11 @@ model_CoCAViaR_AS_pos <- function(theta, df, prob_level, risk_measure, forecast=
 }
 
 
-nabla_CoCAViaR_AS_pos <- function(theta, df, prob_level, risk_measure){
+nabla_CoCAViaR_AS_pos <- function(theta, df, prob_level, risk_measure, init_method="omega"){
   q <- length(theta)
   TT <- dim(df)[1]
 
-  m <- model_CoCAViaR_AS_pos(theta, df, prob_level, risk_measure)
+  m <- model_CoCAViaR_AS_pos(theta, df, prob_level, risk_measure, init_method=init_method)
 
   # Manually implement the gradient
   nabla_m1 <- cbind(1, lag(pmax(df$x,0)), lag(pmax(df$y,0)), lag(m$m1), array(0, dim=c(TT,4)))
@@ -482,7 +492,7 @@ theta_CoCAViaR_AS_pos <- function(theta, df=NULL){
                            0.01, 0.05, 1,       0.75)
   theta_names <- list(VaR=c("(Intercept)", "lag X+", "lag Y+", "lag VaR"),
                       CoVaR=c("(Intercept)", "lag X+","lag Y+", "lag CoVaR"),
-                      MES=c("(Intercept)", "lag X+","lag Y+", "lag MES"),)
+                      MES=c("(Intercept)", "lag X+","lag Y+", "lag MES"))
   return(list(theta1=theta1, theta2=theta2, length_theta=length_theta, length_theta1=length_theta1, length_theta2=length_theta2, theta_start_default=theta_start_default, theta_names=theta_names))
 }
 
@@ -492,7 +502,7 @@ theta_CoCAViaR_AS_pos <- function(theta, df=NULL){
 ###    10 Parameter "CoCAViaR_AS_signs" model where X_t and Y_t can enter in their signed components
 ################################################################################
 
-model_CoCAViaR_AS_signs <- function(theta, df, prob_level, risk_measure, forecast=FALSE, model_type="joint", m1=NULL){
+model_CoCAViaR_AS_signs <- function(theta, df, prob_level, risk_measure, forecast=FALSE, model_type="joint", init_method="omega", m1=NULL){
   q <- length(theta)
   alpha <- prob_level$alpha
   beta <- prob_level$beta
@@ -500,15 +510,14 @@ model_CoCAViaR_AS_signs <- function(theta, df, prob_level, risk_measure, forecas
   TT <- dim(df)[1]
   if (forecast){TT <- TT + 1} # To produce a model forecast, simply add 1 to TT
 
+  # Initialize the recursion
+  if(model_type=="second"){omega_init <-  c(NA,theta[1])} else {omega_init <- c(theta[1], theta[5])}
+  m12 <- initialize_recursion(df, omega_init, risk_measure, alpha, beta, init_method)
+
   if (model_type=="joint"){
     m1 <- m2 <- rep(NA,TT)
-    m1[1] <- quantile(df$x, beta)
-    # Initialize m2 depending on the risk_measure we estimate
-    if (risk_measure=="CoVaR"){
-      m2[1] <- quantile(df$y[df$x >= m1[1]] , alpha)
-    } else if (risk_measure=="MES"){
-      m2[1] <- mean(df$y[df$x >= m1[1]])
-    }
+    m1[1] <- m12[1]
+    m2[1] <- m12[2]
     for (tt in 2:TT){
       m1[tt] <- theta[1] + theta[2]*pmax(df$x[tt-1],0) + theta[3]*(-pmin(df$x[tt-1],0)) + theta[4]*m1[tt-1]
       m2[tt] <- theta[5] + theta[6]*pmax(df$x[tt-1],0) + theta[7]*(-pmin(df$x[tt-1],0)) + theta[8]*pmax(df$y[tt-1],0) + theta[9]*(-pmin(df$y[tt-1],0)) + theta[10]*m2[tt-1]
@@ -516,7 +525,7 @@ model_CoCAViaR_AS_signs <- function(theta, df, prob_level, risk_measure, forecas
     return(list(m1=m1, m2=m2))
   } else if (model_type=="first"){
     m1 <- rep(NA,TT)
-    m1[1] <- quantile(df$x, beta)
+    m1[1] <- m12[1]
     for (tt in 2:TT){
       m1[tt] <- theta[1] + theta[2]*pmax(df$x[tt-1],0) + theta[3]*(-pmin(df$x[tt-1],0)) + theta[4]*m1[tt-1]
     }
@@ -524,12 +533,7 @@ model_CoCAViaR_AS_signs <- function(theta, df, prob_level, risk_measure, forecas
   } else if (model_type=="second"){
     stopifnot(!is.null(m1)) # A vector of m1 must be given!
     m2 <- rep(NA,TT)
-    # Initialize m2 depending on the risk_measure we estimate
-    if (risk_measure=="CoVaR"){
-      m2[1] <- quantile(df$y[df$x >= m1[1]] , alpha)
-    } else if (risk_measure=="MES"){
-      m2[1] <- mean(df$y[df$x >= m1[1]])
-    }
+    m2[1] <- m12[2]
     for (tt in 2:TT){
       m2[tt] <- theta[1] + theta[2]*pmax(df$x[tt-1],0) + theta[3]*(-pmin(df$x[tt-1],0)) + theta[4]*pmax(df$y[tt-1],0) + theta[5]*(-pmin(df$y[tt-1],0)) + theta[6]*m2[tt-1]
     }
@@ -538,11 +542,11 @@ model_CoCAViaR_AS_signs <- function(theta, df, prob_level, risk_measure, forecas
 }
 
 
-nabla_CoCAViaR_AS_signs <- function(theta, df, prob_level, risk_measure){
+nabla_CoCAViaR_AS_signs <- function(theta, df, prob_level, risk_measure, init_method="omega"){
   q <- length(theta)
   TT <- dim(df)[1]
 
-  m <- model_CoCAViaR_AS_signs(theta, df, prob_level, risk_measure)
+  m <- model_CoCAViaR_AS_signs(theta, df, prob_level, risk_measure, init_method=init_method)
 
   # Manually implement the gradient
   nabla_m1 <- cbind(1, lag(pmax(df$x,0)), -lag(pmin(df$x,0)), lag(m$m1), array(0, dim=c(TT,6)))
@@ -573,7 +577,7 @@ theta_CoCAViaR_AS_signs <- function(theta, df=NULL){
 ###    10 Parameter "CoCAViaR_AS_mixed" model where X_t and Y_t enter in their signed components, and cross terms in their absolute value
 ################################################################################
 
-model_CoCAViaR_AS_mixed <- function(theta, df, prob_level, risk_measure, forecast=FALSE, model_type="joint", m1=NULL){
+model_CoCAViaR_AS_mixed <- function(theta, df, prob_level, risk_measure, forecast=FALSE, model_type="joint", init_method="omega", m1=NULL){
   q <- length(theta)
   alpha <- prob_level$alpha
   beta <- prob_level$beta
@@ -581,15 +585,14 @@ model_CoCAViaR_AS_mixed <- function(theta, df, prob_level, risk_measure, forecas
   TT <- dim(df)[1]
   if (forecast){TT <- TT + 1} # To produce a model forecast, simply add 1 to TT
 
+  # Initialize the recursion
+  if(model_type=="second"){omega_init <-  c(NA,theta[1])} else {omega_init <- c(theta[1], theta[6])}
+  m12 <- initialize_recursion(df, omega_init, risk_measure, alpha, beta, init_method)
+
   if (model_type=="joint"){
     m1 <- m2 <- rep(NA,TT)
-    m1[1] <- quantile(df$x, beta)
-    # Initialize m2 depending on the risk_measure we estimate
-    if (risk_measure=="CoVaR"){
-      m2[1] <- quantile(df$y[df$x >= m1[1]] , alpha)
-    } else if (risk_measure=="MES"){
-      m2[1] <- mean(df$y[df$x >= m1[1]])
-    }
+    m1[1] <- m12[1]
+    m2[1] <- m12[2]
     for (tt in 2:TT){
       m1[tt] <- theta[1] + theta[2]*pmax(df$x[tt-1],0) + theta[3]*(-pmin(df$x[tt-1],0)) + theta[4]*abs(df$y[tt-1]) + theta[5]*m1[tt-1]
       m2[tt] <- theta[6] + theta[7]*abs(df$x[tt-1]) + theta[8]*pmax(df$y[tt-1],0) + theta[9]*(-pmin(df$y[tt-1],0)) + theta[10]*m2[tt-1]
@@ -597,7 +600,7 @@ model_CoCAViaR_AS_mixed <- function(theta, df, prob_level, risk_measure, forecas
     return(list(m1=m1, m2=m2))
   } else if (model_type=="first"){
     m1 <- rep(NA,TT)
-    m1[1] <- quantile(df$x, beta)
+    m1[1] <- m12[1]
     for (tt in 2:TT){
       m1[tt] <- theta[1] + theta[2]*pmax(df$x[tt-1],0) + theta[3]*(-pmin(df$x[tt-1],0)) + theta[4]*abs(df$y[tt-1]) + theta[5]*m1[tt-1]
     }
@@ -605,12 +608,7 @@ model_CoCAViaR_AS_mixed <- function(theta, df, prob_level, risk_measure, forecas
   } else if (model_type=="second"){
     stopifnot(!is.null(m1)) # A vector of m1 must be given!
     m2 <- rep(NA,TT)
-    # Initialize m2 depending on the risk_measure we estimate
-    if (risk_measure=="CoVaR"){
-      m2[1] <- quantile(df$y[df$x >= m1[1]] , alpha)
-    } else if (risk_measure=="MES"){
-      m2[1] <- mean(df$y[df$x >= m1[1]])
-    }
+    m2[1] <- m12[2]
     for (tt in 2:TT){
       m2[tt] <- theta[1] + theta[2]*abs(df$x[tt-1]) + theta[3]*pmax(df$y[tt-1],0) + theta[4]*(-pmin(df$y[tt-1],0)) + theta[5]*m2[tt-1]
     }
@@ -619,11 +617,11 @@ model_CoCAViaR_AS_mixed <- function(theta, df, prob_level, risk_measure, forecas
 }
 
 
-nabla_CoCAViaR_AS_mixed <- function(theta, df, prob_level, risk_measure){
+nabla_CoCAViaR_AS_mixed <- function(theta, df, prob_level, risk_measure, init_method="omega"){
   q <- length(theta)
   TT <- dim(df)[1]
 
-  m <- model_CoCAViaR_AS_mixed(theta, df, prob_level, risk_measure)
+  m <- model_CoCAViaR_AS_mixed(theta, df, prob_level, risk_measure, init_method=init_method)
 
   # Manually implement the gradient
   nabla_m1 <- cbind(1, lag(pmax(df$x,0)), -lag(pmin(df$x,0)), lag(abs(df$y)), lag(m$m1), array(0, dim=c(TT,5)))
@@ -657,7 +655,7 @@ theta_CoCAViaR_AS_mixed <- function(theta, df=NULL){
 ###   "CoCAViaR_Z" model corresponding to the "CoCAViaR_SAV_diag" model plus added linear covariates Z.
 ################################################################################
 
-model_CoCAViaR_Z <- function(theta, df, prob_level, risk_measure, forecast=FALSE, model_type="joint", m1=NULL){
+model_CoCAViaR_Z <- function(theta, df, prob_level, risk_measure, forecast=FALSE, model_type="joint",  init_method="omega", m1=NULL){
   q <- length(theta)
   alpha <- prob_level$alpha
   beta <- prob_level$beta
@@ -673,15 +671,14 @@ model_CoCAViaR_Z <- function(theta, df, prob_level, risk_measure, forecast=FALSE
   TT <- dim(df)[1]
   if (forecast){TT <- TT + 1} # To produce a model forecast, simply add 1 to TT
 
+  # Initialize the recursion
+  if(model_type=="second"){omega_init <-  c(NA,theta[1])} else {omega_init <- c(theta[1], theta[(q/2)+1])}
+  m12 <- initialize_recursion(df, omega_init, risk_measure, alpha, beta, init_method)
+
   if (model_type=="joint"){
     m1 <- m2 <- rep(NA,TT)
-    m1[1] <- quantile(df$x, beta)
-    # Initialize m2 depending on the risk_measure we estimate
-    if (risk_measure=="CoVaR"){
-      m2[1] <- quantile(df$y[df$x >= m1[1]] , alpha)
-    } else if (risk_measure=="MES"){
-      m2[1] <- mean(df$y[df$x >= m1[1]])
-    }
+    m1[1] <- m12[1]
+    m2[1] <- m12[2]
     for (tt in 2:TT){
       m1[tt] <- theta[1] + theta[2]*abs(df$x[tt-1]) + theta[3]*m1[tt-1] + as.numeric(z[tt-1,] %*% theta[4:(q/2)])
       m2[tt] <- theta[(q/2)+1] + theta[(q/2)+2]*abs(df$y[tt-1]) + theta[(q/2)+3]*m2[tt-1] + as.numeric(z[tt-1,] %*% theta[((q/2)+4):q])
@@ -689,7 +686,7 @@ model_CoCAViaR_Z <- function(theta, df, prob_level, risk_measure, forecast=FALSE
     return(list(m1=m1, m2=m2))
   } else if (model_type=="first"){
     m1 <- rep(NA,TT)
-    m1[1] <- quantile(df$x, beta)
+    m1[1] <- m12[1]
     for (tt in 2:TT){
       m1[tt] <- theta[1] + theta[2]*abs(df$x[tt-1]) + theta[3]*m1[tt-1] + as.numeric(z[tt-1,] %*% theta[4:q])
     }
@@ -697,12 +694,7 @@ model_CoCAViaR_Z <- function(theta, df, prob_level, risk_measure, forecast=FALSE
   } else if (model_type=="second"){
     stopifnot(!is.null(m1)) # A vector of m1 must be given!
     m2 <- rep(NA,TT)
-    # Initialize m2 depending on the risk_measure we estimate
-    if (risk_measure=="CoVaR"){
-      m2[1] <- quantile(df$y[df$x >= m1[1]] , alpha)
-    } else if (risk_measure=="MES"){
-      m2[1] <- mean(df$y[df$x >= m1[1]])
-    }
+    m2[1] <- m12[2]
     for (tt in 2:TT){
       m2[tt] <- theta[1] + theta[2]*abs(df$y[tt-1]) + theta[3]*m2[tt-1] + as.numeric(z[tt-1,] %*% theta[4:q])
     }
@@ -711,9 +703,9 @@ model_CoCAViaR_Z <- function(theta, df, prob_level, risk_measure, forecast=FALSE
 }
 
 
-nabla_CoCAViaR_Z <- function(theta, df, prob_level, risk_measure){
+nabla_CoCAViaR_Z <- function(theta, df, prob_level, risk_measure, init_method="omega"){
   TT <- dim(df)[1]
-  m <- model_CoCAViaR_SAV_diag(theta, df, prob_level, risk_measure)
+  m <- model_CoCAViaR_SAV_diag(theta, df, prob_level, risk_measure, init_method=init_method)
 
   # Matrix of covariates
   z <- df %>%

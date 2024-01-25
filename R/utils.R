@@ -1,10 +1,10 @@
 
 
-loss_model_VaR <- function(theta, df, model, prob_level){
+loss_model_VaR <- function(theta, df, model, prob_level, init_method="omega"){
   # The parameter theta only contains the VaR parameters here for the M-estimator!
   beta <- prob_level$beta
 
-  m <- model_fun(theta=theta, df=df, prob_level=prob_level, model=model, model_type="first")
+  m <- model_fun(theta=theta, df=df, prob_level=prob_level, model=model, model_type="first", init_method=init_method)
   v <- m$m1
   loss <- (v - df$x) * ((df$x <= v) - beta)
   return(loss)
@@ -12,12 +12,12 @@ loss_model_VaR <- function(theta, df, model, prob_level){
 
 
 
-loss_model_CoVaR <- function(theta, df, m1, model, prob_level){
+loss_model_CoVaR <- function(theta, df, m1, model, prob_level, init_method="omega"){
   # The parameter theta only contains the CoVaR parameters here for the second step M-estimator!
   # One has to pass predictions m1 here!
   alpha <- prob_level$alpha
 
-  m <- model_fun(theta=theta, df=df, prob_level=prob_level, model=model, risk_measure="CoVaR", model_type="second", m1=m1)
+  m <- model_fun(theta=theta, df=df, prob_level=prob_level, model=model, risk_measure="CoVaR", init_method=init_method, model_type="second", m1=m1)
   v <- m1
   c <- m$m2
 
@@ -28,11 +28,11 @@ loss_model_CoVaR <- function(theta, df, m1, model, prob_level){
 
 
 
-loss_model_MES <- function(theta, df, m1, model, prob_level){
+loss_model_MES <- function(theta, df, m1, model, prob_level, init_method="omega"){
   # The parameter theta only contains the MES parameters here for the second step M-estimator!
   # One has to pass predictions m1 here!
 
-  m <- model_fun(theta=theta, df=df, prob_level=prob_level, model=model, risk_measure="MES", model_type="second", m1=m1)
+  m <- model_fun(theta=theta, df=df, prob_level=prob_level, model=model, risk_measure="MES", init_method=init_method, model_type="second", m1=m1)
   v <- m1
   m <- m$m2
 
