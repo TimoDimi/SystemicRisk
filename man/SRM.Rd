@@ -15,10 +15,20 @@ SRM(...)
   beta = 0.95,
   alpha = 0.95,
   theta0 = NULL,
+  init_method = "omega",
   optim_replications = c(1, 3)
 )
 
-\method{SRM}{fit}(data, model, risk_measure, beta, alpha, theta0, optim_replications)
+\method{SRM}{fit}(
+  data,
+  model,
+  risk_measure,
+  beta,
+  alpha,
+  theta0,
+  init_method,
+  optim_replications
+)
 }
 \arguments{
 \item{...}{Further arguments (does not apply here).}
@@ -102,7 +112,7 @@ plot(obj)
 
 }
 \references{
-\href{https://arxiv.org/abs/2206.14275}{Dynamic Co-Quantile Regression}
+\href{https://arxiv.org/abs/2206.14275}{Dynamic CoVaR Modeling} and \href{https://arxiv.org/abs/2311.13327}{Regressions Under Adverse Conditions}
 }
 \seealso{
 \code{\link{SRMroll}} for a class of rolling window SRM models,

@@ -77,7 +77,7 @@
 #' plot(obj)
 #'
 #'
-#' @references \href{https://arxiv.org/abs/2206.14275}{Dynamic Co-Quantile Regression}
+#' @references \href{https://arxiv.org/abs/2206.14275}{Dynamic CoVaR Modeling} and \href{https://arxiv.org/abs/2311.13327}{Regressions Under Adverse Conditions}
 #' @rdname SRM
 #' @export
 SRM <- function(...) {
@@ -90,11 +90,11 @@ SRM <- function(...) {
 #' @export
 SRM.default <- function(data=NULL,
                          model="CoCAViaR_SAV_diag", risk_measure="CoVaR", beta=0.95, alpha=0.95,
-                         theta0=NULL, optim_replications=c(1,3)){
+                         theta0=NULL, init_method="omega", optim_replications=c(1,3)){
 
   fit <- SRM.fit(data=data,
                   model=model, risk_measure=risk_measure, beta=beta, alpha=alpha,
-                  theta0=theta0, optim_replications=optim_replications)
+                  theta0=theta0, init_method=init_method, optim_replications=optim_replications)
 
   fit$call <- match.call()
   fit
@@ -106,8 +106,8 @@ SRM.default <- function(data=NULL,
 #' @rdname SRM
 #' @export
 SRM.fit <- function(data,
-                     model, risk_measure, beta, alpha,
-                     theta0, optim_replications){
+                    model, risk_measure, beta, alpha,
+                    theta0, init_method, optim_replications){
 
   # Collect input data as a tibble
   # data <- collect_data(data=data, x=x, y=y, z=z)
@@ -151,20 +151,20 @@ SRM.fit <- function(data,
     opt_v <- optim(par=theta01,
                    fn=function(theta,...){
                      mean(loss_model_VaR(theta,...),na.rm=TRUE)},
-                   df=data, model=model, prob_level=prob_level)
+                   df=data, model=model, prob_level=prob_level, init_method=init_method)
 
     thetav_est_rep[rep, ] <- opt_v$par
     Mest_obj1[rep] <- opt_v$value
 
     theta01 <- thetav_est_rep[rep, ] +
       MASS::mvrnorm(n=1, mu=rep(0,length(theta01)), Sigma=0.1*diag(length(theta01)))
-    while(!is.finite(mean(loss_model_VaR(theta01,df=data, model=model, prob_level=prob_level), na.rm=TRUE))){
+    while(!is.finite(mean(loss_model_VaR(theta01,df=data, model=model, prob_level=prob_level, init_method=init_method), na.rm=TRUE))){
       theta01 <- thetav_est_rep[rep, ] +
         MASS::mvrnorm(n=1, mu=rep(0,length(theta01)), Sigma=0.1*diag(length(theta01)))
     }
   }
   thetav_est <- thetav_est_rep[which.min(Mest_obj1),]
-  m1_est <- model_fun(thetav_est, df=data, prob_level=prob_level, model=model, model_type="first")$m1
+  m1_est <- model_fun(thetav_est, df=data, prob_level=prob_level, model=model, model_type="first", init_method=init_method)$m1
 
 
   ### Second step: CoVaR/MES optimization
@@ -177,7 +177,7 @@ SRM.fit <- function(data,
                       switch(risk_measure,
                              MES = {mean(loss_model_MES(theta,...),na.rm=TRUE)},
                              CoVaR = {mean(loss_model_CoVaR(theta,...),na.rm=TRUE)})},
-                    df=data, m1=m1_est, model=model, prob_level=prob_level)
+                    df=data, m1=m1_est, model=model, prob_level=prob_level, init_method=init_method)
 
     theta2_est_rep[rep, ] <- opt_m2$par
     Mest_obj2[rep] <- opt_m2$value
@@ -186,8 +186,8 @@ SRM.fit <- function(data,
     theta02 <- theta2_est_rep[rep, ] +
       MASS::mvrnorm(n=1, mu=rep(0,length(theta02)), Sigma=0.1*diag(length(theta02)))
     while(!is.finite(switch(risk_measure,
-                            MES = {mean(loss_model_MES(theta02, df=data, m1=m1_est, model=model, prob_level=prob_level), na.rm=TRUE)},
-                            CoVaR = {mean(loss_model_CoVaR(theta02, df=data, m1=m1_est, model=model, prob_level=prob_level), na.rm=TRUE)}))){
+                            MES = {mean(loss_model_MES(theta02, df=data, m1=m1_est, model=model, prob_level=prob_level, init_method=init_method), na.rm=TRUE)},
+                            CoVaR = {mean(loss_model_CoVaR(theta02, df=data, m1=m1_est, model=model, prob_level=prob_level, init_method=init_method), na.rm=TRUE)}))){
       theta02 <- theta2_est_rep[rep, ] +
         MASS::mvrnorm(n=1, mu=rep(0,length(theta02)), Sigma=0.1*diag(length(theta02)))
     }
@@ -197,7 +197,7 @@ SRM.fit <- function(data,
   theta_est <- c(thetav_est, theta2_est)
 
   # Create a data.frame with in sample predictions
-  m_est  <- model_fun(theta_est, data, prob_level, model, risk_measure)
+  m_est  <- model_fun(theta_est, data, prob_level, model, risk_measure, init_method=init_method)
   m_est$m1[1] <- m_est$m2[1] <- NA # The first values are NAs, just for the estimation of dynamic models we have to select starting values!
   data <- data %>%
     dplyr::mutate(VaR=as.numeric(m_est$m1), risk_measure:=as.numeric(m_est$m2)) %>%

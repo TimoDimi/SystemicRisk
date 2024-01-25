@@ -1,5 +1,5 @@
 
-vcovA <- function(SRM_object, sparsity="kernel", bandwidth="MachadoSilva",...) {
+vcovA <- function(SRM_object, sparsity="kernel", bandwidth="MachadoSilva", bandwidth_factor=1,...) {
 
   risk_measure <- SRM_object$risk_measure
   data_trunc <- slice(SRM_object$data,-1) # Cut off first line of data as there are no predictions available for this line/date!
@@ -37,7 +37,7 @@ vcovA <- function(SRM_object, sparsity="kernel", bandwidth="MachadoSilva",...) {
 
   # Estimate the conditional distributions/densities
   if (sparsity=="kernel"){
-    cond_dist <- sparsity_kernel(x=x, y=y, v=v, c=c, beta=beta, alpha=alpha, TT=TT, bandwidth=bandwidth)
+    cond_dist <- sparsity_kernel(x=x, y=y, v=v, c=c, beta=beta, alpha=alpha, TT=TT, bandwidth=bandwidth, bandwidth_factor=bandwidth_factor)
   } else if (sparsity=="ARB"){
     cond_dist <- sparsity_ARB(x=x, y=y, v=v, c=c, beta=beta, alpha=alpha, TT=TT, nabla_v=nabla_v, Xi_vv_vec=Xi_vv_vec)
   } else {
@@ -104,19 +104,19 @@ vcovA <- function(SRM_object, sparsity="kernel", bandwidth="MachadoSilva",...) {
 
 
 
-sparsity_kernel <- function(x, y, v, c, beta, alpha, TT, bandwidth){
+sparsity_kernel <- function(x, y, v, c, beta, alpha, TT, bandwidth, bandwidth_factor){
   if (bandwidth=="MachadoSilva"){
     # Koenker (2005), Machado and Silva (2013) bandwidth selection
     m_T <- function(tau){(qnorm(0.975))^(2/3) * ((1.5*(dnorm(qnorm(tau)))^2)/(2*(qnorm(tau))^2 + 1))^(1/3)}
     eps <- 0.0001
-    b_T <- stats::mad(x-v) * TT^(-1/3) * (qnorm( min(1-eps, beta + m_T(beta))) - qnorm( max(eps, beta - m_T(beta))))
-    c_T <- stats::mad(y-c) * ((1-beta)*TT)^(-1/3) * (qnorm( min(1-eps, alpha + m_T(alpha))) - qnorm( max(eps, alpha - m_T(alpha))))
+    b_T <- bandwidth_factor * stats::mad(x-v) * TT^(-1/3) * (qnorm( min(1-eps, beta + m_T(beta))) - qnorm( max(eps, beta - m_T(beta))))
+    c_T <- bandwidth_factor * stats::mad(y-c) * ((1-beta)*TT)^(-1/3) * (qnorm( min(1-eps, alpha + m_T(alpha))) - qnorm( max(eps, alpha - m_T(alpha))))
   } else if (bandwidth=="own"){
     b_T <- 0.1/sqrt(beta*(1-beta)) * stats::mad(x-v) * TT^(-1/3)
     # Larger bandwidth as c is (at least for beta >= 0.5) further in the tail of y than v of x
     c_T <- 0.1/sqrt((1-beta) * alpha * (1-alpha)) * stats::mad(y-c) * TT^(-1/3)
   } else {
-    b_T <- c_T <- TT^{-1/3}
+    b_T <- c_T <- bandwidth_factor * TT^{-1/3}
   }
 
   fX_est <- 1/(2*b_T) * (abs(x-v) <= b_T)

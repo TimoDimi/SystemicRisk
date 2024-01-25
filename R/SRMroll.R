@@ -43,7 +43,7 @@ SRMroll <- function(data=NULL,
                      model="CoCAViaR_SAV_diag",
                      length_IS=1000, refit_freq=100,
                      risk_measure="CoVaR", beta=0.95, alpha=0.95,
-                     theta0=NULL, optim_replications=c(1,3)){
+                     theta0=NULL, init_method="omega", optim_replications=c(1,3)){
 
   # data must be a tsibble object with columns Date, x, y and possibly covariates
   TT <- dim(data)[1]
@@ -69,7 +69,7 @@ SRMroll <- function(data=NULL,
       # Possible extension: Include some error handling if this fit fails?
       SRM_obj <- SRM(data=data_tt, model=model,
                        risk_measure=risk_measure, beta=beta, alpha=alpha,
-                       theta0=theta_start, optim_replications=optim_replications)
+                       theta0=theta_start, init_method=init_method, optim_replications=optim_replications)
       SRM_objects <- append(SRM_objects, list(SRM_obj))
     }
     FCs <- forecast(SRM_obj,

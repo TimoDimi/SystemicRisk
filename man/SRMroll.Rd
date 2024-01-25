@@ -13,6 +13,7 @@ SRMroll(
   beta = 0.95,
   alpha = 0.95,
   theta0 = NULL,
+  init_method = "omega",
   optim_replications = c(1, 3)
 )
 }

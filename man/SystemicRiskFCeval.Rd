@@ -19,7 +19,10 @@ SystemicRiskFCeval(
   alpha = 0.95,
   sided = "onehalf",
   cov_method = "HAC",
-  sig_level = 0.05
+  sig_level = 0.05,
+  b_VaR = 1,
+  b_CoVaR = 1,
+  b_MES = 1
 )
 }
 \arguments{

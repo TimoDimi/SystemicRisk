@@ -4,7 +4,7 @@
 \alias{nabla_joint_linear}
 \title{Gradient of the joint linear VaR/CoVaR model}
 \usage{
-nabla_joint_linear(theta, df, prob_level, risk_measure)
+nabla_joint_linear(theta, df, prob_level, risk_measure, init_method = "omega")
 }
 \arguments{
 \item{theta}{Parameter vector}

@@ -29,7 +29,8 @@ SystemicRiskFCeval <- function(data=NULL,
                                CoVaR1=NULL, CoVaR2=NULL,
                                MES1=NULL, MES2=NULL,
                                risk_measure="CoVaR", beta=0.95, alpha=0.95,
-                               sided="onehalf", cov_method="HAC", sig_level=0.05){
+                               sided="onehalf", cov_method="HAC", sig_level=0.05,
+                               b_VaR=1, b_CoVaR=1, b_MES=1){
 
 
   # ToDo: Somehow deal elegantly with CoVaR and MES input data!
@@ -47,10 +48,10 @@ SystemicRiskFCeval <- function(data=NULL,
 
   data <- data %>% stats::na.omit()
 
-  LossDiffVaR <- with(data, loss_VaR(x=x, VaR=VaR1, beta=beta)) - with(data, loss_VaR(x=x, VaR=VaR2, beta=beta))
+  LossDiffVaR <- with(data, loss_VaR(x=x, VaR=VaR1, beta=beta, b=b_VaR)) - with(data, loss_VaR(x=x, VaR=VaR2, beta=beta, b=b_VaR))
   LossDiffrisk_measure <- switch(risk_measure,
                         MES = {with(data, loss_MES(x=x, y=y, VaR=VaR1, MES=risk_measure1)) - with(data, loss_MES(x=x, y=y, VaR=VaR2, MES=risk_measure2))},
-                        CoVaR = {with(data, loss_CoVaR(x=x, y=y, VaR=VaR1, CoVaR=risk_measure1, alpha=alpha)) - with(data, loss_CoVaR(x=x, y=y, VaR=VaR2, CoVaR=risk_measure2, alpha=alpha))}
+                        CoVaR = {with(data, loss_CoVaR(x=x, y=y, VaR=VaR1, CoVaR=risk_measure1, alpha=alpha, b=b_CoVaR)) - with(data, loss_CoVaR(x=x, y=y, VaR=VaR2, CoVaR=risk_measure2, alpha=alpha, b=b_CoVaR))}
   )
   LossDiff <- cbind(LossDiffVaR, LossDiffrisk_measure)
   MeanLossDiff <- colMeans(LossDiff, na.rm = T)
