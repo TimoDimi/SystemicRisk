@@ -253,7 +253,7 @@ summary.SRM <- function(SRM_object, method='asymptotic',...){
   coef_mat_VaR <- coef_mat[1:length(SRM_object$colnames$VaR),]
   rownames(coef_mat_VaR) <- SRM_object$colnames$VaR
 
-  coef_mat_risk_measure <- coef_mat[-(1:length(SRM_object$colnames[[SRM_object$risk_measure]])),]
+  coef_mat_risk_measure <- coef_mat[-(1:length(SRM_object$colnames$VaR)),]
   rownames(coef_mat_risk_measure) <- SRM_object$colnames[[SRM_object$risk_measure]]
 
   # Return an object of class "summary.SRM"
