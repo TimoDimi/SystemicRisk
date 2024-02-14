@@ -95,6 +95,8 @@ initialize_recursion <- function(df, omega, risk_measure, alpha, beta, init_meth
       m2 <- omega[2]
     }
 
+  } else if (is.numeric(init_method)){
+    m1 <- m2 <- init_method
   } else {
     m1 <- m2 <- 0
   }
