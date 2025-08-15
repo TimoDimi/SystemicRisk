@@ -199,10 +199,11 @@ vcovB <- function(SRM_object, block_length='default', B=500) {
                    df=data, model=SRM_object$model, prob_level=SRM_object$prob_level)
 
     theta_est_v <- opt_v$par
+    # Extract the VaR model values
     m1_est <- model_fun(theta_est_v, df=data, prob_level=SRM_object$prob_level, model=SRM_object$model, model_type="first")$m1
 
     # Second bootstrap step:
-    # Important: Only select the bootstrap losses, instead of directly resamlping the data!
+    # Important: Only select the bootstrap losses (log-likelihoods in the paper notation), instead of directly resampling the data!
     opt_m2 <- optim(par=theta02,
                     fn=function(theta,...){
                       switch(SRM_object$risk_measure,

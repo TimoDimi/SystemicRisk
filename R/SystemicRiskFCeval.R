@@ -23,14 +23,14 @@
 #'
 #' @examples
 #' @importFrom magrittr `%>%`
-SystemicRiskFCeval <- function(data=NULL,
-                               x=NULL, y=NULL,
-                               VaR1=NULL, VaR2=NULL,
-                               CoVaR1=NULL, CoVaR2=NULL,
-                               MES1=NULL, MES2=NULL,
-                               risk_measure="CoVaR", beta=0.95, alpha=0.95,
-                               sided="onehalf", cov_method="HAC", sig_level=0.05,
-                               b_VaR=1, b_CoVaR=1, b_MES=1){
+SystemicRiskFCeval<- function(data=NULL,
+                              x=NULL, y=NULL,
+                              VaR1=NULL, VaR2=NULL,
+                              CoVaR1=NULL, CoVaR2=NULL,
+                              MES1=NULL, MES2=NULL,
+                              risk_measure="CoVaR", beta=0.95, alpha=0.95,
+                              sided="onehalf", cov_method="HAC", sig_level=0.05,
+                              b_VaR=1, b_CoVaR=1, b_MES=1){
 
 
   # ToDo: Somehow deal elegantly with CoVaR and MES input data!
@@ -50,8 +50,8 @@ SystemicRiskFCeval <- function(data=NULL,
 
   LossDiffVaR <- with(data, loss_VaR(x=x, VaR=VaR1, beta=beta, b=b_VaR)) - with(data, loss_VaR(x=x, VaR=VaR2, beta=beta, b=b_VaR))
   LossDiffrisk_measure <- switch(risk_measure,
-                        MES = {with(data, loss_MES(x=x, y=y, VaR=VaR1, MES=risk_measure1)) - with(data, loss_MES(x=x, y=y, VaR=VaR2, MES=risk_measure2))},
-                        CoVaR = {with(data, loss_CoVaR(x=x, y=y, VaR=VaR1, CoVaR=risk_measure1, alpha=alpha, b=b_CoVaR)) - with(data, loss_CoVaR(x=x, y=y, VaR=VaR2, CoVaR=risk_measure2, alpha=alpha, b=b_CoVaR))}
+                                 MES = {with(data, loss_MES(x=x, y=y, VaR=VaR1, MES=risk_measure1)) - with(data, loss_MES(x=x, y=y, VaR=VaR2, MES=risk_measure2))},
+                                 CoVaR = {with(data, loss_CoVaR(x=x, y=y, VaR=VaR1, CoVaR=risk_measure1, alpha=alpha, b=b_CoVaR)) - with(data, loss_CoVaR(x=x, y=y, VaR=VaR2, CoVaR=risk_measure2, alpha=alpha, b=b_CoVaR))}
   )
   LossDiff <- cbind(LossDiffVaR, LossDiffrisk_measure)
   MeanLossDiff <- colMeans(LossDiff, na.rm = T)
@@ -68,11 +68,11 @@ SystemicRiskFCeval <- function(data=NULL,
   Omega_inv = tryCatch(solve(Omega), error = function(e) {MASS::ginv(Omega)})
 
   if (sided=="onehalf"){
-    b          <- Omega_inv[1, 2] * n
-    c          <- Omega_inv[2, 2] * n
+    b          <- Omega_inv[1, 2]
+    c          <- Omega_inv[2, 2]
     d_1n       <- mean(LossDiff[,1])
     d_2n       <- mean(LossDiff[,2])
-    d_2n_tilde <- max(d_2n, -(b/c) * d_1n)
+    d_2n_tilde <- max(d_2n, -(b/c) * d_1n) # b and c are components of Omega_inv! Eq (5.5) in Fissler and Hoga concerns Omega diretly!
 
     TestStat <- n * (t(c(d_1n, d_2n_tilde))) %*% Omega_inv %*% t((t(c(d_1n, d_2n_tilde))))     # Wald test statistic
     pval <- 0.5 + 0.5 * pchisq(q=TestStat, df=2, lower.tail = FALSE) - 0.5*pchisq(q=TestStat, df=1)    # p-value of onehalf sided test
@@ -93,7 +93,7 @@ SystemicRiskFCeval <- function(data=NULL,
   npoints <- 1000
   # Get points for a central ellipse of acceptance region
   contour_data <- mixtools::ellipse(mu=c(0,0),
-                                    sigma = Omega/dim(data)[1],
+                                    sigma = Omega/n,
                                     alpha = nu_tilde,
                                     npoints=npoints,
                                     draw=FALSE) %>%
@@ -105,11 +105,25 @@ SystemicRiskFCeval <- function(data=NULL,
 
 
   # Calculate the zone!
-  if (pval > sig_level) {zone <- "yellow"}
-  else if (MeanLossDiff[1] < min(ellipse_data$x)) {zone <- "red"}
-  else if (MeanLossDiff[1] > max(ellipse_data$x)) {zone <- "grey"}
-  else if (MeanLossDiff[2] >= 0) {zone <- "green"}
-  else {zone <- "orange"}
+
+  zone_code <- point_ellipse_position_code(MeanLossDiff[1], MeanLossDiff[2],
+                                           x_ellipse=ellipse_data$x, y_ellipse=ellipse_data$y)
+
+  zone <- switch(as.character(zone_code),
+                 "0" = "yellow",   # inside
+                 "1" = "red",    # left
+                 "2" = "grey",  # right
+                 "3" = "green",     # above
+                 "4" = "orange",  # below
+                 "black"          # default, should never happen!
+  )
+
+
+  # if (pval > sig_level) {zone <- "yellow"}
+  # else if (MeanLossDiff[1] < min(ellipse_data$x)) {zone <- "red"}
+  # else if (MeanLossDiff[1] > max(ellipse_data$x)) {zone <- "grey"}
+  # else if (MeanLossDiff[2] >= 0) {zone <- "green"} # NOT CORRECT!
+  # else {zone <- "orange"}
 
   # Return the object
   obj <- list(MeanLossDiff=MeanLossDiff,
@@ -125,10 +139,15 @@ SystemicRiskFCeval <- function(data=NULL,
               risk_measure=risk_measure,
               beta=beta,
               alpha=alpha
-              )
+  )
   class(obj) <- "SystemicRiskFCeval"
   return(obj)
 }
+
+
+
+
+
 
 
 
@@ -274,4 +293,68 @@ loss_CoVaR <- function(x, y, VaR, CoVaR, alpha, b=1){
 loss_MES <- function(x, y, VaR, MES){
   S <- 1*(x>VaR) * (MES - y)^2
   return(S)
+}
+
+
+
+#' Checks where a point is relative to a given ellipse in the one-half sided test of FH (2024, JBES)
+#'
+#' @param xp x-coordinate of point (that is checked)
+#' @param yp y-coordinate of point (that is checked)
+#' @param x_ellipse x-coordinates of the ellipse
+#' @param y_ellipse y-coordinates of the ellipse
+#'
+#' @returns
+#' @export
+#'
+#' @examples
+point_ellipse_position_code <- function(xp, yp, x_ellipse, y_ellipse) {
+
+  # Classification codes:
+  # 0 = inside ellipse (or on boundary)
+  # 1 = left of left-most point
+  # 2 = right of right-most point
+  # 3 = above ellipse (within x-range)
+  # 4 = below ellipse (within x-range)
+
+  pos <- sp::point.in.polygon(xp, yp, x_ellipse, y_ellipse)
+  if (pos > 0) return(0)  # inside or boundary
+
+  x_min <- min(x_ellipse)
+  x_max <- max(x_ellipse)
+
+  if (xp < x_min) return(1)
+  if (xp > x_max) return(2)
+
+  # Inside x-range: check above/below in y-axis sense
+
+  # Close polygon
+  x_ell <- c(x_ellipse, x_ellipse[1])
+  y_ell <- c(y_ellipse, y_ellipse[1])
+
+  # Intersections with vertical line at xp
+  y_cross <- c()
+  for (i in seq_along(x_ell)[-length(x_ell)]) {
+    x1 <- x_ell[i];   y1 <- y_ell[i]
+    x2 <- x_ell[i+1]; y2 <- y_ell[i+1]
+
+    if ((xp >= min(x1, x2)) && (xp <= max(x1, x2)) && (x1 != x2)) {
+      t <- (xp - x1) / (x2 - x1)
+      y_int <- y1 + t * (y2 - y1)
+      y_cross <- c(y_cross, y_int)
+    }
+  }
+
+  if (length(y_cross) < 2) {
+    stop("Error: could not find vertical intersection with ellipse")
+  }
+
+  y_top <- max(y_cross)
+  y_bottom <- min(y_cross)
+
+  if (yp > y_top) return(3)
+  if (yp < y_bottom) return(4)
+
+  # If we get here, something's wrong — but default to 0 (inside)
+  return(0)
 }

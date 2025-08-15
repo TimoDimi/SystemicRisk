@@ -26,6 +26,7 @@ Imports:
     lubridate,
     reshape2,
     rugarch,
+    sp,
     tidyselect,
     ggnewscale,
     mixtools,
