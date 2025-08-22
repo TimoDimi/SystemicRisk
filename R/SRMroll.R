@@ -175,6 +175,7 @@ autoplot.SRMroll <- function(obj, facet_names=NULL){
   p <- ggplot2::ggplot(df_long %>% arrange(VaR_violation)) +
     ggplot2::geom_point(aes(x=Date, y=NegativeReturns, color=VaR_violation)) +
     ggplot2::scale_colour_manual(values = c("grey", "black")) +
+    labs(color = "VaR Exceedance") +
     ggnewscale::new_scale_color() + # For two color scales!!!
     ggplot2::geom_line(aes(x=Date, y=risk_measureForecasts, color=Symbol)) +
     ggplot2::scale_colour_manual(values = c("red", "blue")) +
